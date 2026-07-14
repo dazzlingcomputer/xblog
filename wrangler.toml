@@ -1,0 +1,47 @@
+name = "xblog"
+main = "src/index.ts"
+compatibility_date = "2024-11-01"
+compatibility_flags = ["nodejs_compat"]
+
+# ------------------------------------------------------------------
+# KV 命名空间：用于存储网站设置 / 浏览量计数 / 索引缓存
+# 请先在 Cloudflare 控制台或使用下方命令创建 KV：
+#   npx wrangler kv namespace create SETTINGS_KV
+# 然后把生成的 id 填入下面
+# ------------------------------------------------------------------
+#[[kv_namespaces]]
+#binding = "SETTINGS_KV"
+#id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+# ------------------------------------------------------------------
+# 非敏感环境变量（敏感信息如 Token / 密码请使用 Secrets，见 README）
+# 下面的变量均为可选：留空则可在 /admin 后台管理页面配置，
+# 一旦在此处（或 Secrets）设置，将始终优先于后台设置生效。
+# ------------------------------------------------------------------
+[vars]
+#GITHUB_OWNER = "your-github-username"
+#GITHUB_REPO = "xblog-storage"
+#GITHUB_BRANCH = "main"
+# SITE_TITLE = "Xblog"
+# SITE_SUBTITLE = "记录生活，分享思考"
+# SITE_URL = "https://xblog.yourdomain.workers.dev"
+# SITE_FAVICON = ""
+# SITE_AVATAR = ""
+# SITE_BACKGROUND_URL = ""
+# SITE_BACKGROUND_TYPE = "image"
+# SITE_VERTICAL_TABS = "false"
+# SITE_ACCENT_COLOR = "#5b8def"
+# GITHUB_COMMENT_OWNER = ""
+# GITHUB_COMMENT_REPO = ""
+
+# ------------------------------------------------------------------
+# 以下变量属于敏感信息，强烈建议使用 Secrets 而不是 [vars] 明文存储：
+#   npx wrangler secret put GITHUB_TOKEN
+#   npx wrangler secret put ADMIN_PASSWORD        (可选，不设置则默认密码为 admin，可在后台修改)
+#   npx wrangler secret put SESSION_SECRET        (用于签名 Cookie，建议设置为随机字符串)
+#   npx wrangler secret put GITHUB_CLIENT_ID      (访客登录用，可选)
+#   npx wrangler secret put GITHUB_CLIENT_SECRET  (访客登录用，可选)
+# 如果使用 Cloudflare 控制台部署，也可以在
+# “Workers 和 Pages -> 你的 Worker -> 设置 -> 变量和机密” 中添加，
+# 类型选择 “机密（Secret）”。
+# ------------------------------------------------------------------
