@@ -54,12 +54,14 @@ export interface UserSessionData {
   login: string;
   avatar_url: string;
   html_url: string;
-  token: string;
   ts: number;
 }
 
-export async function createUserSession(env: Env, user: GithubUser, token: string): Promise<string> {
-  const data: UserSessionData = { login: user.login, avatar_url: user.avatar_url, html_url: user.html_url, token, ts: Date.now() };
+// 注意：不再持久化访客的 GitHub OAuth token。
+// 该 token 只在 /callback 中短暂使用一次（换取身份信息），随后即丢弃。
+// 后续所有写入 GitHub 的操作统一使用管理员的 env.GITHUB_TOKEN。
+export async function createUserSession(env: Env, user: GithubUser): Promise<string> {
+  const data: UserSessionData = { login: user.login, avatar_url: user.avatar_url, html_url: user.html_url, ts: Date.now() };
   const payload = JSON.stringify(data);
   const sig = await hmac(env, payload);
   return `${b64url(payload)}.${sig}`;
@@ -86,7 +88,9 @@ export function buildAuthorizeUrl(env: Env, redirectUri: string, state: string):
   const params = new URLSearchParams({
     client_id: env.GITHUB_CLIENT_ID || "",
     redirect_uri: redirectUri,
-    scope: "public_repo",
+    // 访客登录只是为了拿到 login/avatar 用于展示身份，
+    // 不再用访客 token 直接写仓库，所以不需要 public_repo/repo 这类写权限。
+    scope: "read:user",
     state,
   });
   return `https://github.com/login/oauth/authorize?${params.toString()}`;

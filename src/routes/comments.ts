@@ -3,7 +3,7 @@ import { getCookie } from "hono/cookie";
 import type { Env } from "../types";
 import { verifyUserSession } from "../lib/auth";
 import { getPost, setPostIssueNumber } from "../lib/data";
-import { ghHeaders } from "../lib/github";
+import { ghHeaders, getIssue, patchIssueBody } from "../lib/github";
 
 export const commentsRoutes = new Hono<{ Bindings: Env }>();
 
@@ -12,6 +12,69 @@ function commentRepo(env: Env) {
     owner: env.GITHUB_COMMENT_OWNER || env.GITHUB_OWNER,
     repo: env.GITHUB_COMMENT_REPO || env.GITHUB_REPO,
   };
+}
+
+// ---------------------------------------------------------------------------
+// 身份"嵌入 / 还原"：由于实际写入 GitHub 的操作统一使用管理员 GITHUB_TOKEN，
+// 所有评论在 GitHub 上看起来都是管理员账号发的。为了在博客前端仍能展示访客
+// 的真实身份，我们把访客信息编码成一段 HTML 注释，塞进评论正文最前面——
+// HTML 注释在 GitHub 渲染 issue 时不会显示，纯粹是给我们自己的接口解析用的。
+// ---------------------------------------------------------------------------
+const VISITOR_MARK_RE = /^<!--xb-visitor:([\s\S]*?)-->\n?/;
+const LIKES_MARK_RE = /<!--xb-likes:([\s\S]*?)-->/;
+
+interface VisitorIdentity {
+  login: string;
+  avatar_url: string;
+  html_url: string;
+}
+
+function encodeVisitorBody(user: VisitorIdentity, text: string): string {
+  const mark = `<!--xb-visitor:${JSON.stringify({
+    login: user.login,
+    avatar: user.avatar_url,
+    html_url: user.html_url,
+  })}-->`;
+  return `${mark}\n${text}`;
+}
+
+function decodeVisitorBody(
+  raw: string,
+  fallbackLogin: string,
+  fallbackAvatar: string
+): { login: string; avatar: string; body: string } {
+  const m = raw.match(VISITOR_MARK_RE);
+  if (!m) return { login: fallbackLogin, avatar: fallbackAvatar, body: raw };
+  try {
+    const info = JSON.parse(m[1]);
+    return {
+      login: info.login || fallbackLogin,
+      avatar: info.avatar || fallbackAvatar,
+      body: raw.slice(m[0].length),
+    };
+  } catch {
+    return { login: fallbackLogin, avatar: fallbackAvatar, body: raw };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 点赞：不再使用 GitHub 原生 reactions API（那会把"点赞人"记成管理员账号，
+// 且无法区分是谁点的），改为在 issue body 末尾维护一段隐藏的 JSON 点赞人列表。
+// ---------------------------------------------------------------------------
+function parseLikes(issueBody: string | null | undefined): string[] {
+  const m = issueBody?.match(LIKES_MARK_RE);
+  if (!m) return [];
+  try {
+    const arr = JSON.parse(m[1]);
+    return Array.isArray(arr) ? arr.filter((x) => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function buildBodyWithLikes(baseBody: string, likes: string[]): string {
+  const stripped = (baseBody || "").replace(LIKES_MARK_RE, "").trimEnd();
+  return `${stripped}\n\n<!--xb-likes:${JSON.stringify(likes)}-->`;
 }
 
 async function findOrCreateIssue(env: Env, slug: string): Promise<number | null> {
@@ -34,7 +97,7 @@ async function findOrCreateIssue(env: Env, slug: string): Promise<number | null>
   } catch (e) {
     console.error("搜索评论 issue 失败", e);
   }
-  // 创建新 issue
+  // 创建新 issue（管理员 token，私有仓库下同样可用）
   const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues`, {
     method: "POST",
     headers: ghHeaders(env.GITHUB_TOKEN),
@@ -55,39 +118,31 @@ commentsRoutes.get("/api/comments/:slug", async (c) => {
     const issueNumber = await findOrCreateIssue(c.env, slug);
     if (!issueNumber) return c.json({ comments: [], likes: 0, liked: false });
 
-    const [commentsRes, issueRes] = await Promise.all([
+    const [commentsRes, issueJson] = await Promise.all([
       fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}/comments?per_page=100`, {
-        headers: ghHeaders(c.env.GITHUB_TOKEN),
+        headers: ghHeaders(c.env.GITHUB_TOKEN), // 统一用管理员 token 读取，私有仓库也没问题
       }),
-      fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`, {
-        headers: ghHeaders(c.env.GITHUB_TOKEN, "application/vnd.github.squirrel-girl-preview+json"),
-      }),
+      getIssue(c.env, owner, repo, issueNumber),
     ]);
     const commentsJson = commentsRes.ok ? ((await commentsRes.json()) as any[]) : [];
-    const issueJson = issueRes.ok ? ((await issueRes.json()) as any) : null;
-    const likes = issueJson?.reactions?.["+1"] || 0;
-
-    let liked = false;
-    if (user) {
-      const reactionsRes = await fetch(
-        `https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}/reactions?per_page=100`,
-        { headers: ghHeaders(c.env.GITHUB_TOKEN, "application/vnd.github.squirrel-girl-preview+json") }
-      );
-      if (reactionsRes.ok) {
-        const reactions = (await reactionsRes.json()) as any[];
-        liked = reactions.some((r) => r.content === "+1" && r.user?.login === user.login);
-      }
-    }
+    const likeList = parseLikes(issueJson?.body);
+    const likes = likeList.length;
+    const liked = !!(user && likeList.includes(user.login));
 
     return c.json({
       likes,
       liked,
-      comments: commentsJson.map((cm) => ({
-        login: cm.user?.login || "匿名",
-        avatar: cm.user?.avatar_url || "",
-        body: cm.body,
-        createdAt: cm.created_at,
-      })),
+      comments: commentsJson.map((cm) => {
+        // 优先还原我们嵌入的访客身份；如果没有标记（比如管理员直接在 GitHub 网页上手动回复），
+        // 就退回显示真实发布者（此时就是管理员自己的账号）。
+        const decoded = decodeVisitorBody(cm.body || "", cm.user?.login || "匿名", cm.user?.avatar_url || "");
+        return {
+          login: decoded.login,
+          avatar: decoded.avatar,
+          body: decoded.body,
+          createdAt: cm.created_at,
+        };
+      }),
     });
   } catch (e) {
     console.error(e);
@@ -103,16 +158,23 @@ commentsRoutes.post("/api/comments/:slug", async (c) => {
   const body = await c.req.json().catch(() => ({} as any));
   const text = (body.body || "").toString().trim();
   if (!text) return c.json({ error: "评论内容不能为空" }, 400);
+  if (text.length > 5000) return c.json({ error: "评论内容过长" }, 400);
   const { owner, repo } = commentRepo(c.env);
   try {
     const issueNumber = await findOrCreateIssue(c.env, slug);
     if (!issueNumber) return c.json({ error: "评论区初始化失败" }, 500);
+    const wrapped = encodeVisitorBody(
+      { login: user.login, avatar_url: user.avatar_url, html_url: user.html_url },
+      text
+    );
+    // 关键改动：不再用访客自己的 token，统一用管理员 GITHUB_TOKEN 写入，
+    // 因此私有仓库也能正常发表评论；访客真实身份已编码进 wrapped 正文里。
     const res = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}/comments`, {
       method: "POST",
-      headers: ghHeaders(user.token),
-      body: JSON.stringify({ body: text }),
+      headers: ghHeaders(c.env.GITHUB_TOKEN),
+      body: JSON.stringify({ body: wrapped }),
     });
-    if (!res.ok) return c.json({ error: "发表评论失败，可能是 GitHub 授权已过期，请重新登录" }, 500);
+    if (!res.ok) return c.json({ error: "发表评论失败，请稍后再试" }, 500);
     return c.json({ ok: true });
   } catch (e) {
     console.error(e);
@@ -129,29 +191,24 @@ commentsRoutes.post("/api/like/:slug", async (c) => {
   try {
     const issueNumber = await findOrCreateIssue(c.env, slug);
     if (!issueNumber) return c.json({ error: "初始化失败" }, 500);
-    const listRes = await fetch(
-      `https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}/reactions?per_page=100`,
-      { headers: ghHeaders(user.token, "application/vnd.github.squirrel-girl-preview+json") }
-    );
-    const reactions = listRes.ok ? ((await listRes.json()) as any[]) : [];
-    const mine = reactions.find((r) => r.content === "+1" && r.user?.login === user.login);
-    if (mine) {
-      await fetch(`https://api.github.com/repos/${owner}/${repo}/reactions/${mine.id}`, {
-        method: "DELETE",
-        headers: ghHeaders(user.token, "application/vnd.github.squirrel-girl-preview+json"),
-      });
+
+    const issueJson = await getIssue(c.env, owner, repo, issueNumber);
+    if (!issueJson) return c.json({ error: "点赞失败" }, 500);
+
+    const likeList = parseLikes(issueJson.body);
+    const idx = likeList.indexOf(user.login);
+    let liked: boolean;
+    if (idx >= 0) {
+      likeList.splice(idx, 1);
+      liked = false;
     } else {
-      await fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}/reactions`, {
-        method: "POST",
-        headers: ghHeaders(user.token, "application/vnd.github.squirrel-girl-preview+json"),
-        body: JSON.stringify({ content: "+1" }),
-      });
+      likeList.push(user.login);
+      liked = true;
     }
-    const issueRes = await fetch(`https://api.github.com/repos/${owner}/${repo}/issues/${issueNumber}`, {
-      headers: ghHeaders(c.env.GITHUB_TOKEN, "application/vnd.github.squirrel-girl-preview+json"),
-    });
-    const issueJson = issueRes.ok ? ((await issueRes.json()) as any) : null;
-    return c.json({ likes: issueJson?.reactions?.["+1"] || 0, liked: !mine });
+    const newBody = buildBodyWithLikes(issueJson.body || "", likeList);
+    const ok = await patchIssueBody(c.env, owner, repo, issueNumber, newBody);
+    if (!ok) return c.json({ error: "点赞失败" }, 500);
+    return c.json({ likes: likeList.length, liked });
   } catch (e) {
     console.error(e);
     return c.json({ error: "点赞失败" }, 500);

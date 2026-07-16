@@ -37,7 +37,8 @@ authRoutes.get("/callback", async (c) => {
     if (!token) return c.html(errorPage(400, "GitHub 登录失败：无法获取访问令牌", settings), 400);
     const user = await fetchGithubUser(token);
     if (!user) return c.html(errorPage(400, "GitHub 登录失败：无法获取用户信息", settings), 400);
-    const session = await createUserSession(c.env, user, token);
+    // token 只用来查一次身份，用完即弃，不落地到 Cookie / KV 中
+    const session = await createUserSession(c.env, user);
     const isHttps = new URL(c.req.url).protocol === "https:";
     setCookie(c, "xb_user", session, { httpOnly: true, path: "/", maxAge: 30 * 24 * 3600, sameSite: "Lax", secure: isHttps });
     let back = "/";

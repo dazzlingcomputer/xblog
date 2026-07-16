@@ -106,6 +106,36 @@ export async function listDir(env: Env, path: string): Promise<{ name: string; p
   return Array.isArray(json) ? json : [];
 }
 
+/** 读取指定仓库的某个 issue（用管理员 token） */
+export async function getIssue(
+  env: Env,
+  owner: string,
+  repo: string,
+  issueNumber: number
+): Promise<any | null> {
+  const res = await fetch(`${apiBase()}/repos/${owner}/${repo}/issues/${issueNumber}`, {
+    headers: ghHeaders(env.GITHUB_TOKEN),
+  });
+  if (!res.ok) return null;
+  return res.json();
+}
+
+/** 用管理员 token 覆盖 issue 的 body（用于在其中维护"点赞人列表"等元数据） */
+export async function patchIssueBody(
+  env: Env,
+  owner: string,
+  repo: string,
+  issueNumber: number,
+  body: string
+): Promise<boolean> {
+  const res = await fetch(`${apiBase()}/repos/${owner}/${repo}/issues/${issueNumber}`, {
+    method: "PATCH",
+    headers: ghHeaders(env.GITHUB_TOKEN),
+    body: JSON.stringify({ body }),
+  });
+  return res.ok;
+}
+
 async function safeText(res: Response) {
   try {
     return await res.text();
