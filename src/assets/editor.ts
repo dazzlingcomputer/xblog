@@ -68,18 +68,33 @@ export const EDITOR_JS = `
     });
   });
 
+  function showProgress(p){
+    var box = document.getElementById('xb-editor-upload-progress');
+    if (!box) return;
+    box.style.display = 'flex';
+    box.classList.remove('error');
+    var fill = box.querySelector('.xb-upload-progress-bar');
+    var text = box.querySelector('.xb-upload-progress-text');
+    if (fill) fill.style.width = p + '%';
+    if (text) text.textContent = '上传中 ' + p + '%';
+  }
+  function hideProgress(ok, msg){
+    var box = document.getElementById('xb-editor-upload-progress');
+    if (!box) return;
+    var text = box.querySelector('.xb-upload-progress-text');
+    if (!ok) box.classList.add('error');
+    if (text) text.textContent = ok ? '✅ 上传完成' : ('❌ ' + (msg || '上传失败'));
+    setTimeout(function(){ box.style.display = 'none'; }, ok ? 800 : 1800);
+  }
   function upload(file, cb){
-    var reader = new FileReader();
-    reader.onload = function(){
-      var base64 = reader.result.split(',')[1];
-      fetch('/admin/upload', {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ filename: file.name, data: base64 })
-      }).then(function(r){ return r.json(); }).then(function(data){
-        if (data.url) cb(data.url); else alert('上传失败: ' + (data.error || '未知错误'));
-      }).catch(function(){ alert('上传失败'); });
-    };
-    reader.readAsDataURL(file);
+    showProgress(0);
+    window.xbUpload(file, { onProgress: showProgress }).then(function(url){
+      hideProgress(true);
+      cb(url);
+    }).catch(function(err){
+      hideProgress(false, err);
+      alert('上传失败: ' + (err || '未知错误'));
+    });
   }
 
   var imgInput = document.getElementById('xb-file-image');

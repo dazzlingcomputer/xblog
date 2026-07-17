@@ -19,6 +19,33 @@ import { layout, errorPage } from "../lib/layout";
 
 export const adminRoutes = new Hono<{ Bindings: Env }>();
 
+function escapeAttr(s: string): string {
+  return (s || "").replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// 友链头像字段：URL 输入 + 本地文件上传（复用 xbBindUploadInput，自带进度条）
+function friendAvatarField(idPrefix: string, avatarUrl?: string) {
+  return `
+    <div class="xb-field">
+      <label>头像 URL</label>
+      <input class="xb-input" id="${idPrefix}-avatar-input" name="avatar" value="${escapeAttr(avatarUrl || "")}" placeholder="/files/... 或外部链接"/>
+      <input type="file" id="${idPrefix}-file-avatar" accept="image/*" style="margin-top:8px;"/>
+      <img id="${idPrefix}-avatar-preview" class="xb-avatar-preview-sm" src="${escapeAttr(avatarUrl || "")}" style="display:${avatarUrl ? "block" : "none"};"/>
+    </div>
+    <script>
+    document.addEventListener('DOMContentLoaded', function(){
+      if (window.xbBindUploadInput) {
+        window.xbBindUploadInput(document.getElementById('${idPrefix}-file-avatar'), function(url){
+          document.getElementById('${idPrefix}-avatar-input').value = url;
+          var img = document.getElementById('${idPrefix}-avatar-preview');
+          if (img) { img.src = url; img.style.display = 'block'; }
+        });
+      }
+    });
+    </script>
+  `;
+}
+
 function escapeForTextarea(s: string): string {
   return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
@@ -142,24 +169,35 @@ adminRoutes.get("/admin/settings", async (c) => {
     locked[key] ? `<div class="xb-lock-note">🔒 该项由环境变量设置，优先级最高，后台修改不会生效</div>` : "";
 
   const inner = `
-    <form method="post" action="/admin/settings" enctype="multipart/form-data">
+    <form method="post" action="/admin/settings">
       <div class="xb-field"><label>网站标题</label><input class="xb-input" name="siteTitle" value="${settings.siteTitle}" ${locked.siteTitle ? "disabled" : ""}/>${lockNote("siteTitle")}</div>
       <div class="xb-field"><label>副标题 / 简介</label><input class="xb-input" name="siteSubtitle" value="${settings.siteSubtitle}" ${locked.siteSubtitle ? "disabled" : ""}/></div>
-      <div class="xb-field"><label>网站图标 URL（favicon）</label><input class="xb-input" name="favicon" value="${settings.favicon}" placeholder="/files/... 或外部链接" ${locked.favicon ? "disabled" : ""}/>${lockNote("favicon")}</div>
-      <div class="xb-field"><label>个人头像 URL（显示于左上角）</label><input class="xb-input" name="avatar" value="${settings.avatar}" ${locked.avatar ? "disabled" : ""}/>${lockNote("avatar")}
-        <input type="file" name="avatarFile" accept="image/*" style="margin-top:8px;"/>
+      <div class="xb-field"><label>网站图标 URL（favicon）</label>
+        <input class="xb-input" id="xb-favicon-input" name="favicon" value="${settings.favicon}" placeholder="/files/... 或外部链接" ${locked.favicon ? "disabled" : ""}/>${lockNote("favicon")}
+        ${locked.favicon ? "" : `<input type="file" id="xb-file-favicon" accept="image/x-icon,image/png,image/svg+xml,image/*" style="margin-top:8px;"/>`}
+      </div>
+      <div class="xb-field"><label>个人头像 URL（显示于左上角）</label>
+        <input class="xb-input" id="xb-avatar-input" name="avatar" value="${settings.avatar}" ${locked.avatar ? "disabled" : ""}/>${lockNote("avatar")}
+        ${locked.avatar ? "" : `<input type="file" id="xb-file-avatar" accept="image/*" style="margin-top:8px;"/>
+        <img id="xb-avatar-preview" class="xb-avatar-preview-sm" src="${settings.avatar}" style="display:${settings.avatar ? "block" : "none"};"/>`}
       </div>
       <div class="xb-field"><label>背景类型</label>
-        <select class="xb-input" name="backgroundType" ${locked.background ? "disabled" : ""}>
+        <select class="xb-input" id="xb-background-type" name="backgroundType" ${locked.background ? "disabled" : ""}>
           <option value="none" ${settings.background.type === "none" ? "selected" : ""}>无背景</option>
           <option value="image" ${settings.background.type === "image" ? "selected" : ""}>图片</option>
           <option value="video" ${settings.background.type === "video" ? "selected" : ""}>视频</option>
         </select>
       </div>
-      <div class="xb-field"><label>背景地址（图片/视频 URL）</label><input class="xb-input" name="backgroundUrl" value="${settings.background.url}" ${locked.background ? "disabled" : ""}/>${lockNote("background")}
-        <input type="file" name="backgroundFile" accept="image/*,video/*" style="margin-top:8px;"/>
+      <div class="xb-field"><label>背景地址（图片/视频 URL）</label>
+        <input class="xb-input" id="xb-background-input" name="backgroundUrl" value="${settings.background.url}" ${locked.background ? "disabled" : ""}/>${lockNote("background")}
+        ${locked.background ? "" : `<input type="file" id="xb-file-background" accept="image/*,video/*" style="margin-top:8px;"/>`}
       </div>
-      <div class="xb-field"><label>背景蒙层不透明度（0~1）</label><input class="xb-input" type="number" step="0.05" min="0" max="1" name="overlayOpacity" value="${settings.background.overlayOpacity}"/></div>
+      <div class="xb-field"><label>背景蒙层不透明度（0~1）</label>
+        <div class="xb-range-field">
+          <input type="range" id="xb-opacity-input" name="overlayOpacity" step="0.05" min="0" max="1" value="${settings.background.overlayOpacity}"/>
+          <span class="xb-range-value" id="xb-opacity-value">${settings.background.overlayOpacity}</span>
+        </div>
+      </div>
       <div class="xb-field"><label>玻璃模糊强度（px）</label><input class="xb-input" type="number" name="glassBlur" value="${settings.glassBlur}"/></div>
       <div class="xb-field"><label>主题强调色</label><input class="xb-input" type="color" name="accentColor" value="${settings.accentColor}" style="height:44px;" ${locked.accentColor ? "disabled" : ""}/>${lockNote("accentColor")}</div>
       <div class="xb-field"><label>是否启用垂直标签页（侧边栏导航）</label>
@@ -175,6 +213,30 @@ adminRoutes.get("/admin/settings", async (c) => {
       <div class="xb-field"><label>备案号（ICP，可留空）</label><input class="xb-input" name="icp" value="${settings.icp || ""}"/></div>
       <button class="xb-btn" type="submit">💾 保存设置</button>
     </form>
+    <script>
+    document.addEventListener('DOMContentLoaded', function(){
+      if (window.xbBindUploadInput) {
+        window.xbBindUploadInput(document.getElementById('xb-file-favicon'), function(url){
+          document.getElementById('xb-favicon-input').value = url;
+        });
+        window.xbBindUploadInput(document.getElementById('xb-file-avatar'), function(url){
+          document.getElementById('xb-avatar-input').value = url;
+          var img = document.getElementById('xb-avatar-preview');
+          if (img) { img.src = url; img.style.display = 'block'; }
+        });
+        window.xbBindUploadInput(document.getElementById('xb-file-background'), function(url, f){
+          document.getElementById('xb-background-input').value = url;
+          var sel = document.getElementById('xb-background-type');
+          if (sel) sel.value = (f.type || '').indexOf('video') === 0 ? 'video' : 'image';
+        });
+      }
+      var opacityInput = document.getElementById('xb-opacity-input');
+      var opacityValue = document.getElementById('xb-opacity-value');
+      if (opacityInput && opacityValue) {
+        opacityInput.addEventListener('input', function(){ opacityValue.textContent = opacityInput.value; });
+      }
+    });
+    </script>
   `;
   return c.html(layout({ title: "网站设置", settings, active: "" }, adminShell("网站设置", "settings", inner)));
 });
@@ -202,36 +264,14 @@ adminRoutes.post("/admin/settings", async (c) => {
     },
   };
 
-  // 处理文件上传（头像 / 背景）
-  const avatarFile = body.avatarFile as File | undefined;
-  if (avatarFile && typeof avatarFile === "object" && "arrayBuffer" in avatarFile && avatarFile.size > 0) {
-    const buf = await avatarFile.arrayBuffer();
-    const base64 = arrayBufferToBase64(buf);
-    const { url } = await uploadAsset(c.env, avatarFile.name, base64);
-    patch.avatar = url;
-  }
-  const bgFile = body.backgroundFile as File | undefined;
-  if (bgFile && typeof bgFile === "object" && "arrayBuffer" in bgFile && bgFile.size > 0) {
-    const buf = await bgFile.arrayBuffer();
-    const base64 = arrayBufferToBase64(buf);
-    const { url } = await uploadAsset(c.env, bgFile.name, base64);
-    patch.background.url = url;
-    patch.background.type = bgFile.type.startsWith("video") ? "video" : "image";
-  }
+  // 头像 / 背景 / favicon 现在都是前端先上传到 GitHub 拿到 URL 后再随表单一起提交
+  // 文本字段（见 /assets/app.js 里的 xbBindUploadInput），Worker 这一侧不用再处理
+  // 二进制文件、不用再做耗 CPU 的 base64 编码——这也是修复大文件上传时
+  // Cloudflare "Error 1102" 的关键。
 
   await saveSettings(c.env, patch);
   return c.redirect("/admin/settings");
 });
-
-function arrayBufferToBase64(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let binary = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}
 
 // ---------------- 修改密码 ----------------
 adminRoutes.get("/admin/password", async (c) => {
@@ -320,6 +360,7 @@ function editorForm(post: { slug?: string; title?: string; content?: string; cat
       <input type="file" id="xb-file-image" accept="image/*" style="display:none"/>
       <input type="file" id="xb-file-audio" accept="audio/*" style="display:none"/>
     </div>
+    <div class="xb-upload-progress" id="xb-editor-upload-progress"><div class="xb-upload-progress-track"><div class="xb-upload-progress-bar"></div></div><span class="xb-upload-progress-text"></span></div>
     <div class="xb-editor-wrap">
       <textarea class="xb-textarea" id="xb-md-input" name="content" placeholder="像写 Word 一样开始创作吧，支持拖拽图片上传...">${escapeForTextarea(post.content || "")}</textarea>
       <div class="xb-glass" id="xb-md-preview"></div>
@@ -383,15 +424,56 @@ adminRoutes.post("/admin/preview", async (c) => {
   return c.html(`<div class="xb-body">${renderMarkdown(body.md || "")}</div>`);
 });
 
+// 上传文件大小上限。免费版 Cloudflare Workers 的 CPU 时间预算非常小（10ms 级别），
+// 文件越大、编码转发所需的 CPU 时间越多，越容易触发 "Error 1102: Worker exceeded
+// resource limits"。这里给一个默认的保守上限；如果你已经把 Worker 升级到了
+// Cloudflare 的付费方案（CPU 时间预算会大幅提升到 30s 级别），可以适当调大这个数值，
+// 但建议不要超过 25MB —— 这是 GitHub Contents API 实际能稳定处理的单文件大小。
+const MAX_UPLOAD_BYTES = 15 * 1024 * 1024; // 15MB
+
+// 把 ArrayBuffer 分块转成 base64，避免用 String.fromCharCode(...bytes) 展开整个大数组
+// 导致函数参数过多而栈溢出，同时把单次字符串拼接的规模控制在可控范围内。
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const chunkSize = 0x8000; // 32KB
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    let chunkStr = "";
+    const chunk = bytes.subarray(i, i + chunkSize);
+    for (let j = 0; j < chunk.length; j++) chunkStr += String.fromCharCode(chunk[j]);
+    parts.push(chunkStr);
+  }
+  return btoa(parts.join(""));
+}
+
 // ---------------- 通用文件上传 ----------------
+// 前端直接把文件的原始二进制作为请求体发送（不再包一层 JSON + base64），
+// 文件名通过自定义请求头传递。这样 Worker 侧不用再解析一个巨大的 JSON 字符串，
+// 显著降低 CPU 占用；配合上面的大小上限，是修复大文件上传触发 1102 的关键。
 adminRoutes.post("/admin/upload", async (c) => {
   const guard = await requireAuth(c);
   if (guard) return guard;
+
+  const lenHeader = c.req.header("content-length");
+  if (lenHeader && parseInt(lenHeader, 10) > MAX_UPLOAD_BYTES) {
+    return c.json({ error: `文件过大，最大支持 ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB` }, 413);
+  }
+  const filenameHeader = c.req.header("x-xb-filename") || "";
+  let filename = "";
   try {
-    const body = await c.req.json();
-    const { filename, data } = body as { filename: string; data: string };
-    if (!filename || !data) return c.json({ error: "参数缺失" }, 400);
-    const { url } = await uploadAsset(c.env, filename, data);
+    filename = decodeURIComponent(filenameHeader);
+  } catch {
+    filename = filenameHeader;
+  }
+  if (!filename) return c.json({ error: "缺少文件名（X-Xb-Filename 请求头）" }, 400);
+
+  try {
+    const buf = await c.req.arrayBuffer();
+    if (buf.byteLength > MAX_UPLOAD_BYTES) {
+      return c.json({ error: `文件过大，最大支持 ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)}MB` }, 413);
+    }
+    const base64 = arrayBufferToBase64(buf);
+    const { url } = await uploadAsset(c.env, filename, base64);
     return c.json({ url });
   } catch (e) {
     console.error(e);
@@ -408,7 +490,10 @@ adminRoutes.get("/admin/friends", async (c) => {
   const rows = friends
     .map(
       (f, i) => `<tr><td><img src="${f.avatar}" style="width:32px;height:32px;border-radius:50%;"/></td><td>${f.name}</td><td>${f.url}</td><td>${f.desc}</td>
-      <td><form method="post" action="/admin/friends/delete" style="display:inline"><input type="hidden" name="index" value="${i}"/><button class="xb-chip" style="border:none;cursor:pointer;color:#e5484d;">删除</button></form></td></tr>`
+      <td style="white-space:nowrap;">
+        <a class="xb-chip" href="/admin/friends/${i}/edit">编辑</a>
+        <form method="post" action="/admin/friends/delete" style="display:inline" onsubmit="return confirm('确定删除该友链？')"><input type="hidden" name="index" value="${i}"/><button class="xb-chip" style="border:none;cursor:pointer;color:#e5484d;">删除</button></form>
+      </td></tr>`
     )
     .join("");
   const inner = `
@@ -419,13 +504,36 @@ adminRoutes.get("/admin/friends", async (c) => {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
         <div class="xb-field"><label>名称</label><input class="xb-input" name="name" required/></div>
         <div class="xb-field"><label>链接</label><input class="xb-input" name="url" required/></div>
-        <div class="xb-field"><label>头像 URL</label><input class="xb-input" name="avatar"/></div>
-        <div class="xb-field"><label>描述</label><input class="xb-input" name="desc"/></div>
       </div>
+      ${friendAvatarField("xb-add")}
+      <div class="xb-field"><label>描述</label><input class="xb-input" name="desc"/></div>
       <button class="xb-btn" type="submit">➕ 添加</button>
     </form>
   `;
   return c.html(layout({ title: "友链管理", settings, active: "" }, adminShell("友链管理", "friends", inner)));
+});
+
+adminRoutes.get("/admin/friends/:index/edit", async (c) => {
+  const guard = await requireAuth(c);
+  if (guard) return guard;
+  const settings = await getSettings(c.env);
+  const idx = parseInt(c.req.param("index"), 10);
+  const friends = await getFriends(c.env);
+  const f = friends[idx];
+  if (!f) return c.html(errorPage(404, "友链不存在", settings), 404);
+  const inner = `
+    <form method="post" action="/admin/friends/${idx}">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div class="xb-field"><label>名称</label><input class="xb-input" name="name" value="${escapeAttr(f.name)}" required/></div>
+        <div class="xb-field"><label>链接</label><input class="xb-input" name="url" value="${escapeAttr(f.url)}" required/></div>
+      </div>
+      ${friendAvatarField("xb-edit", f.avatar)}
+      <div class="xb-field"><label>描述</label><input class="xb-input" name="desc" value="${escapeAttr(f.desc || "")}"/></div>
+      <button class="xb-btn" type="submit">💾 保存</button>
+      <a class="xb-btn secondary" href="/admin/friends" style="margin-left:8px;">取消</a>
+    </form>
+  `;
+  return c.html(layout({ title: "编辑友链", settings, active: "" }, adminShell("编辑友链", "friends", inner)));
 });
 
 adminRoutes.post("/admin/friends", async (c) => {
@@ -440,6 +548,24 @@ adminRoutes.post("/admin/friends", async (c) => {
     desc: (body.desc as string) || "",
   });
   await saveFriends(c.env, friends);
+  return c.redirect("/admin/friends");
+});
+
+adminRoutes.post("/admin/friends/:index", async (c) => {
+  const guard = await requireAuth(c);
+  if (guard) return guard;
+  const idx = parseInt(c.req.param("index"), 10);
+  const body = await c.req.parseBody();
+  const friends = await getFriends(c.env);
+  if (idx >= 0 && idx < friends.length) {
+    friends[idx] = {
+      name: (body.name as string) || friends[idx].name,
+      url: (body.url as string) || friends[idx].url,
+      avatar: (body.avatar as string) || "",
+      desc: (body.desc as string) || "",
+    };
+    await saveFriends(c.env, friends);
+  }
   return c.redirect("/admin/friends");
 });
 

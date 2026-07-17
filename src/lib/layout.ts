@@ -73,12 +73,12 @@ ${opts.head || ""}
 </head>
 <body class="${bodyClass || ""}">
 ${renderBackground(settings)}
-<div class="xb-bg-overlay"></div>
+<div class="xb-bg-overlay" style="opacity:${settings.background?.overlayOpacity ?? 0.35}"></div>
 <div class="xb-shell ${verticalClass}">
+${settings.verticalTabs ? `<button class="xb-mobile-toggle xb-btn secondary" aria-label="菜单">☰</button>` : ""}
   <header class="xb-header xb-glass">
     ${brand}
     <nav class="xb-tabs">${tabsHtml(active)}</nav>
-    <button class="xb-mobile-toggle xb-btn secondary" aria-label="菜单">☰</button>
     <div class="xb-spacer"></div>
     <form class="xb-search xb-glass" action="/search" method="get" onsubmit="return false;">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
