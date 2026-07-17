@@ -3,44 +3,10 @@ main = "src/index.ts"
 compatibility_date = "2024-11-01"
 compatibility_flags = ["nodejs_compat"]
 
-# ------------------------------------------------------------------
-# KV 命名空间：用于存储网站设置 / 浏览量计数 / 索引缓存
-# 请先在 Cloudflare 控制台或使用下方命令创建 KV：
-#   npx wrangler kv namespace create SETTINGS_KV
-# 然后把生成的 id 填入下面
-# ------------------------------------------------------------------
-# ------------------------------------------------------------------
-# KV 命名空间：用于存储网站设置 / 浏览量计数 / 索引缓存
-#
-# ⚠️ 重要：如果你是通过 Cloudflare 的 Git 集成（Workers Builds）自动部署的，
-# 这个 KV 绑定【必须】写在这个文件里并提交到仓库，不能只在 Cloudflare 控制台
-# 手动加绑定——因为每次 git push 触发自动部署时，Wrangler 会以本文件为唯一
-# 权威配置来"同步"绑定关系：本文件里没写的绑定，即便你之前在控制台手动加过，
-# 也会在下一次自动部署时被直接移除。这就是"KV 绑定丢失"的根本原因。
-#
-# 操作步骤：
-#   1. npx wrangler kv namespace create SETTINGS_KV   (只需创建一次)
-#   2. 把命令输出里的 id 填到下面，取消注释
-#   3. git commit 提交这个改动 —— 之后每次自动部署都会带上这个绑定
-# ------------------------------------------------------------------
-[[kv_namespaces]]
-binding = "SETTINGS_KV"
-id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+#[[kv_namespaces]]
+#binding = "SETTINGS_KV"
+#id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
 
-# ------------------------------------------------------------------
-# 非敏感环境变量（敏感信息如 Token / 密码请使用 Secrets，见下方）
-#
-# 同样的道理也适用于这里：这个文件里一旦出现 [vars] 这个小节，Wrangler 就会把
-# 它当成"变量的唯一真相来源"。如果你只在 Cloudflare 控制台里手动填了某个变量
-# （类型选的是普通"变量"而不是"机密"），但没写进这个文件，下一次 git 自动部署
-# 同样会把它冲掉。
-#
-# 两种稳妥的做法二选一：
-#   A. 把非敏感的值直接写在下面并提交到仓库（推荐，因为本来就不敏感）；
-#   B. 完全不在这里写、也不在控制台手动加同名"变量"，只通过 /admin 后台面板
-#      配置（数据会存进上面的 SETTINGS_KV，不受这个文件同步逻辑影响）。
-# 千万别"控制台手动加 + 这里不写"，这种组合必丢。
-# ------------------------------------------------------------------
 [vars]
 #GITHUB_OWNER = "your-github-username"
 #GITHUB_REPO = "xblog-storage"
@@ -57,16 +23,4 @@ id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
 # GITHUB_COMMENT_OWNER = ""
 # GITHUB_COMMENT_REPO = ""
 
-# ------------------------------------------------------------------
-# 以下变量属于敏感信息，务必用 Secrets，不要写进这个文件（这个文件会被提交到
-# Git 仓库，明文写在这里等于把 Token / 密码直接公开）：
-#   npx wrangler secret put GITHUB_TOKEN
-#   npx wrangler secret put ADMIN_PASSWORD        (可选，不设置则默认密码为 admin，可在后台修改)
-#   npx wrangler secret put SESSION_SECRET        (用于签名 Cookie，建议设置为随机字符串)
-#   npx wrangler secret put GITHUB_CLIENT_ID      (访客登录用，可选)
-#   npx wrangler secret put GITHUB_CLIENT_SECRET  (访客登录用，可选)
-# 也可以在 Cloudflare 控制台里
-# “Workers 和 Pages -> 你的 Worker -> 设置 -> 变量和机密” 中添加，
-# 类型务必选 “机密（Secret）” 而不是普通“变量”——机密类型不受上面 [vars]
-# 同步逻辑影响，git 自动部署不会把它清掉。
-# ------------------------------------------------------------------
+
